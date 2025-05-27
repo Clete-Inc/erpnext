@@ -636,7 +636,16 @@ class POSInvoice(SalesInvoice):
 			self.account_for_change_amount = (
 				profile.get("account_for_change_amount") or self.account_for_change_amount
 			)
-			self.set_warehouse = profile.get("warehouse") or self.set_warehouse
+			# Check if user has permission to access the warehouse from POS profile
+			profile_warehouse = profile.get("warehouse")
+			if profile_warehouse and self._has_warehouse_permission(profile_warehouse):
+				self.set_warehouse = profile_warehouse
+			elif not self.set_warehouse:
+				# If no warehouse is set and user doesn't have permission to profile warehouse,
+				# try to find a warehouse the user has permission to access
+				permitted_warehouse = self._get_permitted_warehouse()
+				if permitted_warehouse:
+					self.set_warehouse = permitted_warehouse
 
 			for fieldname in (
 				"currency",
@@ -794,6 +803,47 @@ class POSInvoice(SalesInvoice):
 		pr = frappe.db.get_value("Payment Request", filters=filters)
 		if pr:
 			return frappe.get_doc("Payment Request", pr)
+
+	def _has_warehouse_permission(self, warehouse):
+		"""Check if the current user has permission to access the given warehouse"""
+		try:
+			from frappe.core.doctype.user_permission.user_permission import get_permitted_documents
+			
+			# Get all warehouses the user has permission to access
+			permitted_warehouses = get_permitted_documents("Warehouse")
+			
+			# If no specific permissions are set, user has access to all warehouses
+			if not permitted_warehouses:
+				return True
+			
+			# Check if the warehouse is in the permitted list
+			return warehouse in permitted_warehouses
+		except Exception:
+			# If there's any error checking permissions, default to allowing access
+			# to avoid breaking existing functionality
+			return True
+
+	def _get_permitted_warehouse(self):
+		"""Get the first warehouse the user has permission to access"""
+		try:
+			from frappe.core.doctype.user_permission.user_permission import get_permitted_documents
+			
+			# Get all warehouses the user has permission to access
+			permitted_warehouses = get_permitted_documents("Warehouse")
+			
+			# If no specific permissions are set, get any warehouse from the company
+			if not permitted_warehouses:
+				warehouse = frappe.db.get_value("Warehouse", {"company": self.company}, "name")
+				return warehouse
+			
+			# Return the first permitted warehouse
+			return permitted_warehouses[0] if permitted_warehouses else None
+		except Exception:
+			# If there's any error, try to get any warehouse from the company
+			try:
+				return frappe.db.get_value("Warehouse", {"company": self.company}, "name")
+			except Exception:
+				return None
 
 
 @frappe.whitelist()
