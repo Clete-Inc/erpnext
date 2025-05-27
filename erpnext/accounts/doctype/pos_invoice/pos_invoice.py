@@ -636,7 +636,24 @@ class POSInvoice(SalesInvoice):
 			self.account_for_change_amount = (
 				profile.get("account_for_change_amount") or self.account_for_change_amount
 			)
-			self.set_warehouse = profile.get("warehouse") or self.set_warehouse
+			
+			# Handle warehouse assignment with user permission check
+			profile_warehouse = profile.get("warehouse")
+			if profile_warehouse and not self.set_warehouse:
+				try:
+					# Check if user has permission to the warehouse from POS Profile
+					frappe.get_doc("Warehouse", profile_warehouse)
+					self.set_warehouse = profile_warehouse
+				except (frappe.PermissionError, frappe.DoesNotExistError):
+					# User doesn't have permission to the warehouse from POS Profile or warehouse doesn't exist
+					# Try to get a warehouse the user has permission to
+					try:
+						user_warehouses = frappe.get_list("Warehouse", limit=1)
+						if user_warehouses:
+							self.set_warehouse = user_warehouses[0].name
+					except frappe.PermissionError:
+						# User has no warehouse permissions, leave set_warehouse empty
+						pass
 
 			for fieldname in (
 				"currency",

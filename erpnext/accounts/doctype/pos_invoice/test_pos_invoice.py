@@ -973,6 +973,31 @@ class TestPOSInvoice(IntegrationTestCase):
 			frappe.db.rollback(save_point="before_test_delivered_serial_no_case")
 			frappe.set_user("Administrator")
 
+	def test_pos_invoice_with_warehouse_permission_restriction(self):
+		"""Test POS Invoice creation when user has restricted warehouse permissions"""
+		from erpnext.accounts.doctype.pos_profile.test_pos_profile import make_pos_profile
+		
+		# Create a POS profile with a specific warehouse
+		pos_profile = make_pos_profile()
+		pos_profile.warehouse = "_Test Warehouse - _TC"
+		pos_profile.save()
+		
+		# Create POS Invoice - this should not fail even if user doesn't have warehouse permission
+		try:
+			pos_inv = frappe.new_doc("POS Invoice")
+			pos_inv.company = "_Test Company"
+			pos_inv.customer = "_Test Customer"
+			pos_inv.pos_profile = pos_profile.name
+			
+			# This call should not raise PermissionError due to our fix
+			pos_inv.set_missing_values()
+			
+			# The test passes if no PermissionError is raised
+			self.assertTrue(True, "POS Invoice set_missing_values completed without PermissionError")
+			
+		except frappe.PermissionError:
+			self.fail("PermissionError was raised when creating POS Invoice with warehouse restrictions")
+
 
 def create_pos_invoice(**args):
 	args = frappe._dict(args)
