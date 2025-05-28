@@ -973,6 +973,74 @@ class TestPOSInvoice(IntegrationTestCase):
 			frappe.db.rollback(save_point="before_test_delivered_serial_no_case")
 			frappe.set_user("Administrator")
 
+	def test_warehouse_permission_in_pos_profile(self):
+		"""Test that POS Invoice respects warehouse permissions when setting warehouse from POS Profile"""
+		frappe.db.savepoint("before_test_warehouse_permission")
+		try:
+			# Create a test warehouse
+			test_warehouse = frappe.get_doc({
+				"doctype": "Warehouse",
+				"warehouse_name": "Test Restricted Warehouse",
+				"company": "_Test Company"
+			}).insert()
+			
+			# Create a POS Profile with the restricted warehouse
+			pos_profile = frappe.get_doc({
+				"doctype": "POS Profile",
+				"name": "Test Restricted Profile",
+				"company": "_Test Company",
+				"warehouse": test_warehouse.name,
+				"currency": "INR",
+				"write_off_account": "_Test Write Off - _TC",
+				"write_off_cost_center": "_Test Cost Center - _TC",
+				"payments": [{
+					"mode_of_payment": "Cash",
+					"default": 1
+				}]
+			}).insert()
+			
+			# Create a test user without warehouse permission
+			test_user = "test_pos_user@example.com"
+			if not frappe.db.exists("User", test_user):
+				user_doc = frappe.get_doc({
+					"doctype": "User",
+					"email": test_user,
+					"first_name": "Test",
+					"last_name": "POS User",
+					"user_type": "System User"
+				}).insert()
+			
+			# Set user and create POS Invoice
+			frappe.set_user(test_user)
+			
+			# Create POS Invoice - should not fail even without warehouse permission
+			pos_inv = frappe.get_doc({
+				"doctype": "POS Invoice",
+				"company": "_Test Company",
+				"pos_profile": pos_profile.name,
+				"customer": "_Test Customer",
+				"items": [{
+					"item_code": "_Test Item",
+					"qty": 1,
+					"rate": 100
+				}],
+				"payments": [{
+					"mode_of_payment": "Cash",
+					"amount": 100
+				}]
+			})
+			
+			# This should not raise a permission error
+			pos_inv.set_missing_values()
+			
+			# The warehouse should not be set if user doesn't have permission
+			# or should be set to None/empty if no permission
+			self.assertTrue(pos_inv.set_warehouse is None or pos_inv.set_warehouse == "")
+			
+		finally:
+			frappe.db.rollback(save_point="before_test_warehouse_permission")
+			frappe.set_user("Administrator")
+
 
 def create_pos_invoice(**args):
 	args = frappe._dict(args)

@@ -636,7 +636,15 @@ class POSInvoice(SalesInvoice):
 			self.account_for_change_amount = (
 				profile.get("account_for_change_amount") or self.account_for_change_amount
 			)
-			self.set_warehouse = profile.get("warehouse") or self.set_warehouse
+			
+			# Check warehouse permission before setting from profile
+			profile_warehouse = profile.get("warehouse")
+			if profile_warehouse and frappe.has_permission("Warehouse", "read", profile_warehouse):
+				self.set_warehouse = profile_warehouse or self.set_warehouse
+			elif not self.set_warehouse:
+				# If no warehouse is set and user doesn't have permission to profile warehouse,
+				# keep the current set_warehouse value (which might be None)
+				pass
 
 			for fieldname in (
 				"currency",
