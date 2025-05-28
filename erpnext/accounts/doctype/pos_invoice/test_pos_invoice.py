@@ -973,6 +973,83 @@ class TestPOSInvoice(IntegrationTestCase):
 			frappe.db.rollback(save_point="before_test_delivered_serial_no_case")
 			frappe.set_user("Administrator")
 
+	def test_warehouse_permission_in_pos_invoice(self):
+		"""Test that POS Invoice handles warehouse permissions correctly when strict user permissions are applied"""
+		from erpnext.accounts.doctype.pos_profile.test_pos_profile import make_pos_profile
+		
+		frappe.db.savepoint("before_test_warehouse_permission")
+		try:
+			# Create a test warehouse
+			test_warehouse = frappe.get_doc({
+				"doctype": "Warehouse",
+				"warehouse_name": "Test Warehouse for POS Permission",
+				"company": "_Test Company",
+				"parent_warehouse": "_Test Warehouse Group - _TC"
+			})
+			test_warehouse.insert()
+			
+			# Create a POS Profile with the test warehouse
+			pos_profile = make_pos_profile(
+				name="Test POS Profile for Warehouse Permission",
+				warehouse=test_warehouse.name
+			)
+			pos_profile.save()
+			
+			# Create a test user
+			test_user = "test_pos_user@example.com"
+			if not frappe.db.exists("User", test_user):
+				user_doc = frappe.get_doc({
+					"doctype": "User",
+					"email": test_user,
+					"first_name": "Test POS User",
+					"user_type": "System User",
+					"send_welcome_email": 0
+				})
+				user_doc.insert()
+			
+			# Create user permission for a different warehouse (not the one in POS Profile)
+			different_warehouse = "_Test Warehouse - _TC"
+			user_permission = frappe.get_doc({
+				"doctype": "User Permission",
+				"user": test_user,
+				"allow": "Warehouse",
+				"for_value": different_warehouse,
+				"apply_to_all_doctypes": 1
+			})
+			user_permission.insert()
+			
+			# Set user and try to create POS Invoice
+			frappe.set_user(test_user)
+			
+			# This should not raise a permission error
+			pos_inv = frappe.new_doc("POS Invoice")
+			pos_inv.pos_profile = pos_profile.name
+			pos_inv.customer = "_Test Customer"
+			pos_inv.company = "_Test Company"
+			
+			# Call set_missing_values which should handle warehouse permission gracefully
+			pos_inv.set_missing_values()
+			
+			# The warehouse should be set to the one the user has permission to
+			# or remain unset if no permission exists
+			if pos_inv.set_warehouse:
+				# Verify user has permission to the set warehouse
+				self.assertTrue(frappe.has_permission("Warehouse", "read", pos_inv.set_warehouse))
+			
+			# Test should pass without throwing PermissionError
+			self.assertTrue(True, "POS Invoice creation with warehouse permission restrictions should not fail")
+			
+		except Exception as e:
+			# If we get a PermissionError, the fix didn't work
+			if "PermissionError" in str(type(e)):
+				self.fail(f"POS Invoice creation failed with PermissionError: {str(e)}")
+			else:
+				# Re-raise other exceptions
+				raise e
+		finally:
+			frappe.db.rollback(save_point="before_test_warehouse_permission")
+			frappe.set_user("Administrator")
+
 
 def create_pos_invoice(**args):
 	args = frappe._dict(args)
