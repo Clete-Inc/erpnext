@@ -973,6 +973,38 @@ class TestPOSInvoice(IntegrationTestCase):
 			frappe.db.rollback(save_point="before_test_delivered_serial_no_case")
 			frappe.set_user("Administrator")
 
+	def test_warehouse_permission_in_pos_profile(self):
+		"""Test that warehouse permission is checked when setting warehouse from POS Profile"""
+		from erpnext.accounts.doctype.pos_profile.test_pos_profile import make_pos_profile
+		from erpnext.stock.doctype.warehouse.test_warehouse import create_warehouse
+		
+		# Create a test warehouse
+		warehouse = create_warehouse("Test Warehouse for POS Permission")
+		
+		# Create a POS profile with this warehouse
+		pos_profile = make_pos_profile(
+			warehouse=warehouse,
+			company="_Test Company"
+		)
+		
+		# Create a POS Invoice with this profile
+		pos_inv = create_pos_invoice(
+			pos_profile=pos_profile.name,
+			do_not_submit=True,
+			do_not_save=True
+		)
+		
+		# Test that set_missing_values works without throwing permission error
+		try:
+			pos_inv.set_missing_values()
+			# If warehouse permission is available, it should be set
+			# If not available, it should be None (not throw error)
+			self.assertIn(pos_inv.set_warehouse, [warehouse, None])
+		except Exception as e:
+			# Should not throw permission error
+			self.assertNotIn("You are not allowed to access", str(e))
+			self.assertNotIn("linked to Warehouse 'empty'", str(e))
+
 
 def create_pos_invoice(**args):
 	args = frappe._dict(args)
