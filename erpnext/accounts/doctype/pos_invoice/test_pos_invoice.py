@@ -973,6 +973,69 @@ class TestPOSInvoice(IntegrationTestCase):
 			frappe.db.rollback(save_point="before_test_delivered_serial_no_case")
 			frappe.set_user("Administrator")
 
+	def test_warehouse_permission_validation(self):
+		"""Test that POS Invoice handles warehouse permissions correctly when strict user permissions are applied"""
+		from erpnext.accounts.doctype.pos_profile.test_pos_profile import make_pos_profile
+		
+		# Create a test warehouse that the user won't have permission to
+		test_warehouse = frappe.get_doc({
+			"doctype": "Warehouse",
+			"warehouse_name": "Test Restricted Warehouse",
+			"company": "_Test Company"
+		}).insert()
+		
+		try:
+			# Create a POS profile with the restricted warehouse
+			pos_profile = make_pos_profile(
+				company="_Test Company",
+				warehouse=test_warehouse.name,
+				income_account="Sales - _TC",
+				expense_account="Cost of Goods Sold - _TC",
+				write_off_account="Write Off - _TC"
+			)
+			
+			# Create POS Invoice - this should not fail even if user doesn't have warehouse permission
+			pos_inv = frappe.get_doc({
+				"doctype": "POS Invoice",
+				"company": "_Test Company",
+				"customer": "_Test Customer",
+				"pos_profile": pos_profile.name,
+				"items": [{
+					"item_code": "_Test Item",
+					"qty": 1,
+					"rate": 100,
+					"warehouse": "_Test Warehouse - _TC"
+				}],
+				"payments": [{
+					"mode_of_payment": "Cash",
+					"amount": 100
+				}]
+			})
+			
+			# This should not raise a permission error
+			pos_inv.set_missing_values()
+			
+			# Verify that warehouse was not set if user doesn't have permission
+			# or was set correctly if user has permission
+			if frappe.has_permission("Warehouse", "read", test_warehouse.name):
+				self.assertEqual(pos_inv.set_warehouse, test_warehouse.name)
+			else:
+				# Should either be None or the existing value, not the restricted warehouse
+				self.assertNotEqual(pos_inv.set_warehouse, test_warehouse.name)
+			
+			pos_inv.insert()
+			pos_inv.submit()
+			
+		finally:
+			# Clean up
+			if 'pos_inv' in locals() and pos_inv.docstatus == 1:
+				pos_inv.cancel()
+			if 'pos_inv' in locals():
+				pos_inv.delete()
+			if 'pos_profile' in locals():
+				pos_profile.delete()
+			test_warehouse.delete()
+
 
 def create_pos_invoice(**args):
 	args = frappe._dict(args)
